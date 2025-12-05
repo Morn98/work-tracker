@@ -10,7 +10,7 @@ import { Settings } from './pages/Settings';
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter basename="/work-tracker">
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
           <Navigation />
           <main>

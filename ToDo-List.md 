@@ -1,0 +1,11 @@
+# Things to do to make this app work better
+
+1. Correct Data Models for project and session      - Done
+2. Export Data with export button in a json format  - Done
+3. Import Data with import button in a json format  - Done
+
+4. Bug Fix: Statistics Tab - Project Distribution and the XX% per month is broken -> 160 hours per month as base 
+
+4. Authentication via email and password (supabase)
+5. Store data in a full backend (supabase)
+6. Make timer run constantly (via backend - there is a start time and an edge function provides timer to client)

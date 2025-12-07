@@ -52,11 +52,13 @@ export const Projects = () => {
       return;
     }
 
+    const now = Date.now();
     const project: Project = {
-      id: editingProject?.id || `project-${Date.now()}`,
+      id: editingProject?.id || `project-${now}`,
       name: formData.name.trim(),
       color: formData.color,
-      createdAt: editingProject?.createdAt || Date.now(),
+      createdAt: editingProject?.createdAt || now,
+      updatedAt: now, // Will be overwritten by saveProject, but included for completeness
     };
 
     saveProject(project);

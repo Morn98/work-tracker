@@ -71,13 +71,17 @@ export const Timer = () => {
       return;
     }
 
+    const now = Date.now();
     const manualEntry: TimeEntry = {
-      id: `manual-${Date.now()}`,
+      id: `manual-${now}`,
       projectId: selectedProjectId,
       startTime,
       endTime,
       duration,
       description: description || undefined,
+      createdAt: now,
+      updatedAt: now,
+      isManual: true,
     };
 
     saveTimeEntry(manualEntry);

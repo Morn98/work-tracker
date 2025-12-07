@@ -103,6 +103,8 @@ export const useTimer = (): UseTimerReturn => {
       projectId,
       startTime: now,
       description,
+      createdAt: now,
+      updatedAt: now,
     };
 
     setCurrentEntry(newEntry);

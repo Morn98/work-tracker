@@ -39,12 +39,18 @@ export const saveProject = (project: Project): void => {
     const projects = getProjects();
     const existingIndex = projects.findIndex((p) => p.id === project.id);
 
+    // Always update the updatedAt timestamp
+    const projectToSave: Project = {
+      ...project,
+      updatedAt: Date.now(),
+    };
+
     if (existingIndex >= 0) {
       // Update existing project
-      projects[existingIndex] = project;
+      projects[existingIndex] = projectToSave;
     } else {
       // Add new project
-      projects.push(project);
+      projects.push(projectToSave);
     }
 
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
@@ -110,12 +116,18 @@ export const saveTimeEntry = (entry: TimeEntry): void => {
     const entries = getTimeEntries();
     const existingIndex = entries.findIndex((e) => e.id === entry.id);
 
+    // Always update the updatedAt timestamp
+    const entryToSave: TimeEntry = {
+      ...entry,
+      updatedAt: Date.now(),
+    };
+
     if (existingIndex >= 0) {
       // Update existing entry
-      entries[existingIndex] = entry;
+      entries[existingIndex] = entryToSave;
     } else {
       // Add new entry
-      entries.push(entry);
+      entries.push(entryToSave);
     }
 
     localStorage.setItem(STORAGE_KEYS.TIME_ENTRIES, JSON.stringify(entries));
@@ -240,6 +252,101 @@ export const clearAllData = (): void => {
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_TIMER);
   } catch (error) {
     console.error('Error clearing data from localStorage:', error);
+  }
+};
+
+/**
+ * Migrate existing data to add required fields (createdAt, updatedAt, color)
+ * This ensures backward compatibility with data created before schema updates
+ * @returns Object with migration results
+ */
+export const migrateData = (): {
+  migrated: boolean;
+  projectsUpdated: number;
+  entriesUpdated: number
+} => {
+  const DEFAULT_PROJECT_COLOR = '#3B82F6'; // Blue
+  const now = Date.now();
+  let projectsUpdated = 0;
+  let entriesUpdated = 0;
+
+  try {
+    // Migrate projects
+    const projects = getProjects();
+    const migratedProjects = projects.map((project) => {
+      let needsUpdate = false;
+      const updated: Project = { ...project };
+
+      // Add createdAt if missing
+      if (!updated.createdAt) {
+        updated.createdAt = now;
+        needsUpdate = true;
+      }
+
+      // Add updatedAt if missing
+      if (!updated.updatedAt) {
+        updated.updatedAt = now;
+        needsUpdate = true;
+      }
+
+      // Add color if missing
+      if (!updated.color) {
+        updated.color = DEFAULT_PROJECT_COLOR;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        projectsUpdated++;
+      }
+
+      return updated;
+    });
+
+    if (projectsUpdated > 0) {
+      saveProjects(migratedProjects);
+    }
+
+    // Migrate time entries
+    const entries = getTimeEntries();
+    const migratedEntries = entries.map((entry) => {
+      let needsUpdate = false;
+      const updated: TimeEntry = { ...entry };
+
+      // Add createdAt if missing (use startTime as fallback)
+      if (!updated.createdAt) {
+        updated.createdAt = entry.startTime;
+        needsUpdate = true;
+      }
+
+      // Add updatedAt if missing
+      if (!updated.updatedAt) {
+        updated.updatedAt = now;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        entriesUpdated++;
+      }
+
+      return updated;
+    });
+
+    if (entriesUpdated > 0) {
+      saveTimeEntries(migratedEntries);
+    }
+
+    return {
+      migrated: projectsUpdated > 0 || entriesUpdated > 0,
+      projectsUpdated,
+      entriesUpdated,
+    };
+  } catch (error) {
+    console.error('Error migrating data:', error);
+    return {
+      migrated: false,
+      projectsUpdated: 0,
+      entriesUpdated: 0,
+    };
   }
 };
 

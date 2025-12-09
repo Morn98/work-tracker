@@ -21,11 +21,12 @@ export const Header = ({ title, description, action, className = '' }: HeaderPro
             </p>
           )}
         </div>
-        {action && (
-          <div className="flex-shrink-0">
-            {action}
+        <div className="flex items-center gap-4 flex-shrink-0">
+          {action && <div>{action}</div>}
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            v{__APP_VERSION__}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -27,10 +27,20 @@ export const Statistics = () => {
     const loadedSessions = getSessions();
     const loadedProjects = getProjects();
 
+    // Filter sessions for current month only for project stats
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const currentMonthSessions = loadedSessions.filter((session) => {
+      if (!session.endTime) return false;
+      const sessionDate = new Date(session.endTime);
+      return sessionDate >= monthStart && sessionDate <= monthEnd;
+    });
+
     setSessions(loadedSessions);
     setWeeklyTotal(getWeeklyTotal(loadedSessions));
     setMonthlyTotal(getMonthlyTotal(loadedSessions));
-    setProjectStats(groupSessionsByProject(loadedSessions, loadedProjects));
+    setProjectStats(groupSessionsByProject(currentMonthSessions, loadedProjects));
     setDailyBreakdown(getDailyBreakdown(loadedSessions, DAILY_BREAKDOWN_DAYS));
   };
 

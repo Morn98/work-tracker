@@ -17,15 +17,17 @@ export const BarChart = ({ data, maxValue, height = 200, showValues = true }: Ba
   const max = maxValue || Math.max(...data.map((d) => d.value), 1);
   const barWidth = 100 / data.length;
   const padding = 2;
+  const topPadding = 15; // Space for value labels at the top
+  const bottomPadding = 10;
 
   return (
     <div className="w-full">
       <svg viewBox={`0 0 100 ${height}`} className="w-full h-auto" preserveAspectRatio="none">
         {data.map((item, index) => {
-          const barHeight = max > 0 ? (item.value / max) * (height - 20) : 0;
+          const barHeight = max > 0 ? (item.value / max) * (height - topPadding - bottomPadding) : 0;
           const x = (index * barWidth) + padding;
           const width = barWidth - (padding * 2);
-          const y = height - barHeight - 10;
+          const y = height - barHeight - bottomPadding;
           const color = item.color || '#3B82F6';
 
           return (

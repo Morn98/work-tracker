@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getActiveTimer, saveActiveTimer, getTimeEntries, saveTimeEntries } from '../lib/storage';
 import type { TimeEntry } from '../types';
 import { TIMER_UPDATE_INTERVAL, MILLISECONDS_PER_SECOND } from '../constants';
+import { showSuccess } from '../utils/errorHandler';
 
 /**
  * Timer state: idle (not running), running (actively counting), or paused
@@ -23,6 +24,13 @@ interface UseTimerReturn {
 }
 
 /**
+ * Extended TimeEntry for active timer with runtime state
+ */
+interface ActiveTimerData extends TimeEntry {
+  timerState?: 'running' | 'paused'; // Explicit timer state for persistence
+}
+
+/**
  * Custom hook for managing timer functionality
  * Handles start, pause, resume, stop, and persistence to LocalStorage
  */
@@ -37,24 +45,95 @@ export const useTimer = (): UseTimerReturn => {
   const pausedTimeRef = useRef<number>(0); // Accumulated paused time in seconds
 
   /**
-   * Load active timer from LocalStorage on mount
-   * If a timer was paused, restore it in paused state
+   * Synchronize timer state from localStorage (triggered by other tabs)
    */
-  useEffect(() => {
-    const activeTimer = getActiveTimer();
-    if (activeTimer && !activeTimer.endTime) {
-      const now = Date.now();
-      const pausedDuration = activeTimer.duration || 0;
-      
-      // Restore timer state
+  const syncFromStorage = useCallback((timerData: ActiveTimerData | null) => {
+    if (!timerData || timerData.endTime) {
+      // Timer completed or cleared in another tab
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setState('idle');
+      setElapsedTime(0);
+      setCurrentEntry(null);
+      pausedTimeRef.current = 0;
+      showSuccess('Timer stopped in another tab');
+      return;
+    }
+
+    const now = Date.now();
+    const storedState = timerData.timerState || 'paused';
+
+    setCurrentEntry(timerData);
+
+    if (storedState === 'running') {
+      // Calculate elapsed time from stored startTime
+      const elapsed = Math.floor((now - timerData.startTime) / MILLISECONDS_PER_SECOND);
+      setElapsedTime(elapsed);
+      setState('running');
+      startTimeRef.current = timerData.startTime;
+      pausedTimeRef.current = 0;
+      showSuccess('Timer resumed from another tab');
+    } else {
+      // Restore paused state
+      const pausedDuration = timerData.duration || 0;
       setElapsedTime(pausedDuration);
-      setCurrentEntry(activeTimer);
-      setState('paused'); // Start in paused state so user can resume
+      setState('paused');
       pausedTimeRef.current = pausedDuration;
-      // Set start time so that if resumed, elapsed time continues correctly
       startTimeRef.current = now - (pausedDuration * MILLISECONDS_PER_SECOND);
+      showSuccess('Timer paused in another tab');
     }
   }, []);
+
+  /**
+   * Load active timer from LocalStorage on mount
+   * Auto-resume if timer was running, restore paused if it was paused
+   */
+  useEffect(() => {
+    const activeTimer = getActiveTimer() as ActiveTimerData | null;
+    if (activeTimer && !activeTimer.endTime) {
+      const now = Date.now();
+      const wasRunning = activeTimer.timerState === 'running';
+
+      setCurrentEntry(activeTimer);
+
+      if (wasRunning) {
+        // AUTO-RESUME: Timer continues from where it left off
+        const elapsed = Math.floor((now - activeTimer.startTime) / MILLISECONDS_PER_SECOND);
+        setElapsedTime(elapsed);
+        setState('running');
+        startTimeRef.current = activeTimer.startTime;
+        pausedTimeRef.current = 0;
+      } else {
+        // Restore in paused state (backward compatible)
+        const pausedDuration = activeTimer.duration || 0;
+        setElapsedTime(pausedDuration);
+        setState('paused');
+        pausedTimeRef.current = pausedDuration;
+        startTimeRef.current = now - (pausedDuration * MILLISECONDS_PER_SECOND);
+      }
+    }
+  }, []);
+
+  /**
+   * Listen for timer changes from other tabs
+   */
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      // Only respond to active timer changes from OTHER tabs
+      if (e.key !== 'work-tracker-active-timer') return;
+
+      // Parse new value
+      const newActiveTimer = e.newValue ? JSON.parse(e.newValue) as ActiveTimerData : null;
+
+      // Sync state with other tabs
+      syncFromStorage(newActiveTimer);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [syncFromStorage]);
 
   /**
    * Update elapsed time every second when timer is running
@@ -91,20 +170,21 @@ export const useTimer = (): UseTimerReturn => {
    */
   const start = useCallback((projectId: string, description?: string) => {
     // Prevent starting if there's already an active timer
-    const activeTimer = getActiveTimer();
+    const activeTimer = getActiveTimer() as ActiveTimerData | null;
     if (activeTimer && !activeTimer.endTime) {
       console.warn('A timer is already running');
       return;
     }
 
     const now = Date.now();
-    const newEntry: TimeEntry = {
+    const newEntry: ActiveTimerData = {
       id: `timer-${now}`,
       projectId,
       startTime: now,
       description,
       createdAt: now,
       updatedAt: now,
+      timerState: 'running', // NEW: Mark as running
     };
 
     setCurrentEntry(newEntry);
@@ -124,11 +204,11 @@ export const useTimer = (): UseTimerReturn => {
 
     setState('paused');
     pausedTimeRef.current = elapsedTime;
-    
-    // Update the active timer with current duration for persistence
-    const updatedEntry: TimeEntry = {
+
+    const updatedEntry: ActiveTimerData = {
       ...currentEntry,
       duration: elapsedTime,
+      timerState: 'paused', // NEW: Mark as paused
     };
     saveActiveTimer(updatedEntry);
   }, [state, currentEntry, elapsedTime]);
@@ -141,10 +221,16 @@ export const useTimer = (): UseTimerReturn => {
     if (state !== 'paused' || !currentEntry) return;
 
     const now = Date.now();
-    // Adjust start time so that elapsed time calculation continues from paused point
-    // Formula: startTime = now - (pausedTime * 1000)
     startTimeRef.current = now - (pausedTimeRef.current * MILLISECONDS_PER_SECOND);
     setState('running');
+
+    // NEW: Update storage to mark as running
+    const updatedEntry: ActiveTimerData = {
+      ...currentEntry,
+      startTime: startTimeRef.current, // Update for accurate calculation
+      timerState: 'running',
+    };
+    saveActiveTimer(updatedEntry);
   }, [state, currentEntry]);
 
   /**

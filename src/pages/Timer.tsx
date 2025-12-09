@@ -6,7 +6,7 @@ import { ManualEntry } from '../components/timer';
 import { useTimer } from '../hooks/useTimer';
 import { useProjects } from '../hooks/useProjects';
 import { useTodaySessions } from '../hooks/useTodaySessions';
-import { saveTimeEntry } from '../lib/storage';
+import { saveTimeEntry, getActiveTimer } from '../lib/storage';
 import { formatTime } from '../utils/formatTime';
 import { showError, showSuccess } from '../utils/errorHandler';
 import type { TimeEntry } from '../types';
@@ -44,6 +44,14 @@ export const Timer = () => {
       showError('Please select a project');
       return;
     }
+
+    // NEW: Check for timer in another tab
+    const activeTimer = getActiveTimer();
+    if (activeTimer && !activeTimer.endTime && activeTimer.id !== currentEntry?.id) {
+      showError('A timer is already running in another tab. Please stop it first.');
+      return;
+    }
+
     start(selectedProjectId, description || undefined);
   };
 

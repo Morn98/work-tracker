@@ -1,7 +1,7 @@
 {
   "name": "work-tracker",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "homepage": "https://morn98.github.io/work-tracker",
   "scripts": {

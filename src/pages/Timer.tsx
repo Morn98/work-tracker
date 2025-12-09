@@ -167,40 +167,40 @@ export const Timer = () => {
                   )}
                   {isRunning && (
                     <>
-                      <Button 
-                        size="lg" 
-                        variant="secondary" 
+                      <Button
+                        size="lg"
+                        variant="secondary"
                         onClick={pause}
                         className="min-w-[140px]"
                       >
                         ⏸ Pause
                       </Button>
-                      <Button 
-                        size="lg" 
-                        variant="danger" 
+                      <Button
+                        size="lg"
+                        variant="success"
                         onClick={handleStop}
                         className="min-w-[140px]"
                       >
-                        ⏹ Stop
+                        ✓ Finished
                       </Button>
                     </>
                   )}
                   {isPaused && (
                     <>
-                      <Button 
-                        size="lg" 
+                      <Button
+                        size="lg"
                         onClick={resume}
                         className="min-w-[140px]"
                       >
                         ▶ Resume
                       </Button>
-                      <Button 
-                        size="lg" 
-                        variant="danger" 
+                      <Button
+                        size="lg"
+                        variant="success"
                         onClick={handleStop}
                         className="min-w-[140px]"
                       >
-                        ⏹ Stop
+                        ✓ Finished
                       </Button>
                     </>
                   )}

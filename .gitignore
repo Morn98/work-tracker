@@ -15,6 +15,7 @@ build
 public
 .git
 *.local
+ToDo-List.md
 
 # Editor directories and files
 .vscode/*

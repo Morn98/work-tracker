@@ -15,6 +15,7 @@ export const Dashboard = () => {
   const [activeProjectsCount, setActiveProjectsCount] = useState(0);
   const [recentSessions, setRecentSessions] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Array<{ id: string; name: string; color?: string }>>([]);
+  const [visibleSessionCount, setVisibleSessionCount] = useState(4);
 
   const loadData = () => {
     const sessions = getSessions();
@@ -135,7 +136,7 @@ export const Dashboard = () => {
             />
           ) : (
             <div className="space-y-3">
-              {recentSessions.map((session) => (
+              {recentSessions.slice(0, visibleSessionCount).map((session) => (
                 <SessionItem
                   key={session.id}
                   session={session}
@@ -143,6 +144,14 @@ export const Dashboard = () => {
                   projectColor={getProjectColor(session.projectId)}
                 />
               ))}
+              {visibleSessionCount < recentSessions.length && (
+                <button
+                  onClick={() => setVisibleSessionCount(prev => Math.min(prev + 4, recentSessions.length))}
+                  className="w-full py-3 text-center font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-all duration-200 border border-blue-200 dark:border-blue-800"
+                >
+                  {"Load More Sessions"}
+                </button>
+              )}
             </div>
           )}
         </Card>

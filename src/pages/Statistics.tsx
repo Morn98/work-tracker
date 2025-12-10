@@ -106,7 +106,7 @@ export const Statistics = () => {
           </h3>
           {hasData && projectChartData.length > 0 ? (
             <div>
-              <BarChart data={projectChartData} height={200} />
+              <BarChart data={projectChartData} height={100} />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
                 Values shown in hours
               </p>
@@ -128,7 +128,7 @@ export const Statistics = () => {
           </h3>
           {hasData && dailyChartData.length > 0 ? (
             <div>
-              <BarChart data={dailyChartData} height={200} />
+              <BarChart data={dailyChartData} height={100} />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
                 Values shown in hours
               </p>

@@ -22,7 +22,7 @@ function App() {
 
   return (
     <ThemeProvider>
-      <BrowserRouter basename="/work-tracker">
+      <BrowserRouter basename="/">
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
           <Navigation />
           <main>

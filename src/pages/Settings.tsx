@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageContainer, Header, Card, Button } from '../components/ui';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { exportToJSON, getExportSummary } from '../utils/exportData';
 import {
   parseImportFile,
@@ -14,7 +16,9 @@ import { clearAllData } from '../lib/storage';
 import { showSuccess, showError } from '../utils/errorHandler';
 
 export const Settings = () => {
+  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
+  const { user, signOut } = useAuth();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showExportPreview, setShowExportPreview] = useState(false);
 
@@ -146,6 +150,16 @@ export const Settings = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      showError('Failed to logout. Please try again.');
+    }
+  };
+
   return (
     <PageContainer>
       <Header
@@ -154,6 +168,27 @@ export const Settings = () => {
       />
 
       <div className="max-w-3xl space-y-6">
+        <Card>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+            Account
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Email
+              </label>
+              <p className="text-gray-900 dark:text-white">
+                {user?.email}
+              </p>
+            </div>
+            <div>
+              <Button variant="secondary" onClick={handleLogout}>
+                🚪 Logout
+              </Button>
+            </div>
+          </div>
+        </Card>
+
         <Card>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
             Appearance

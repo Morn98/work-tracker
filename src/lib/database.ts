@@ -5,7 +5,8 @@
 
 import { supabase } from './supabase';
 import { requestCache } from './requestCache';
-import type { Project, TimeEntry } from '../types';
+import type { Project, TimeEntry, ActiveTimerData } from '../types';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -36,6 +37,19 @@ type TimeEntryRow = {
   created_at: string;
   updated_at: string;
   is_manual: boolean | false;
+};
+
+type ActiveTimerRow = {
+  id: string;
+  user_id: string;
+  timer_id: string;
+  project_id: string;
+  start_time: string;
+  description: string | null;
+  timer_state: 'running' | 'paused';
+  paused_duration: number;
+  created_at: string;
+  updated_at: string;
 };
 
 // ============================================================================
@@ -100,6 +114,36 @@ const timeEntryToInsert = (
   description: entry.description || null,
   duration: entry.duration || null,
   is_manual: entry.isManual || false,
+});
+
+/**
+ * Convert database row to ActiveTimerData type
+ */
+const rowToActiveTimer = (row: ActiveTimerRow): ActiveTimerData => ({
+  id: row.timer_id,
+  projectId: row.project_id,
+  startTime: new Date(row.start_time).getTime(),
+  description: row.description || undefined,
+  timerState: row.timer_state,
+  pausedDuration: row.paused_duration,
+  createdAt: new Date(row.created_at).getTime(),
+  updatedAt: new Date(row.updated_at).getTime(),
+});
+
+/**
+ * Convert ActiveTimerData to database insert format
+ */
+const activeTimerToInsert = (
+  timer: ActiveTimerData,
+  userId: string
+): Omit<ActiveTimerRow, 'id' | 'created_at' | 'updated_at'> => ({
+  user_id: userId,
+  timer_id: timer.id,
+  project_id: timer.projectId,
+  start_time: new Date(timer.startTime).toISOString(),
+  description: timer.description || null,
+  timer_state: timer.timerState,
+  paused_duration: timer.pausedDuration,
 }); 
 
 // ============================================================================
@@ -369,3 +413,124 @@ export const getRecentSessions = async (
 export const getSessions = getTimeEntries;
 export const saveSession = saveTimeEntry;
 export const deleteSession = deleteTimeEntry;
+
+// ============================================================================
+// ACTIVE TIMER SYNC (MULTI-DEVICE)
+// ============================================================================
+
+/**
+ * Stale timer threshold - timers not updated in 24 hours are considered abandoned
+ */
+const STALE_TIMER_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+/**
+ * Get active timer for current user from database
+ * Returns null if no active timer exists or if timer is stale
+ */
+export const getActiveTimerFromDb = async (): Promise<ActiveTimerData | null> => {
+  try {
+    const userId = await getCurrentUserId();
+
+    const { data, error } = await supabase
+      .from('active_timers')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    const timer = rowToActiveTimer(data as ActiveTimerRow);
+
+    // Stale detection: Auto-clear timers not updated in 24 hours
+    const timeSinceUpdate = Date.now() - timer.updatedAt;
+    if (timeSinceUpdate > STALE_TIMER_THRESHOLD) {
+      console.warn('Stale timer detected (>24 hours), auto-clearing');
+      await clearActiveTimerFromDb();
+      return null;
+    }
+
+    return timer;
+  } catch (error) {
+    // Graceful degradation: Don't throw - return null on error
+    console.error('Failed to fetch active timer from database:', error);
+    return null;
+  }
+};
+
+/**
+ * Save active timer to database (create or update)
+ * Uses upsert with user_id conflict to ensure one timer per user
+ */
+export const saveActiveTimerToDb = async (timer: ActiveTimerData): Promise<void> => {
+  try {
+    const userId = await getCurrentUserId();
+    const timerData = activeTimerToInsert(timer, userId);
+
+    // Upsert: Update if user already has active timer, insert otherwise
+    const { error } = await supabase
+      .from('active_timers')
+      .upsert(timerData, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false,
+      });
+
+    if (error) throw error;
+  } catch (error) {
+    return throwDatabaseError('save active timer', error);
+  }
+};
+
+/**
+ * Clear active timer from database
+ * Called when timer is stopped or reset
+ */
+export const clearActiveTimerFromDb = async (): Promise<void> => {
+  try {
+    const userId = await getCurrentUserId();
+
+    const { error } = await supabase
+      .from('active_timers')
+      .delete()
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  } catch (error) {
+    return throwDatabaseError('clear active timer', error);
+  }
+};
+
+/**
+ * Subscribe to active timer changes from other devices
+ * Uses Supabase Realtime for real-time cross-device sync
+ * @param userId - User ID to filter changes for
+ * @param callback - Function called when timer changes (null if deleted)
+ * @returns RealtimeChannel subscription (call unsubscribe() to cleanup)
+ */
+export const subscribeToActiveTimer = (
+  userId: string,
+  callback: (timer: ActiveTimerData | null) => void
+): RealtimeChannel => {
+  const channel = supabase
+    .channel('active-timer-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+        schema: 'public',
+        table: 'active_timers',
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        if (payload.eventType === 'DELETE') {
+          callback(null); // Timer cleared
+        } else {
+          // INSERT or UPDATE
+          callback(rowToActiveTimer(payload.new as ActiveTimerRow));
+        }
+      }
+    )
+    .subscribe();
+
+  return channel;
+};

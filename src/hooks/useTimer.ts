@@ -1,9 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getActiveTimer, saveActiveTimer } from '../lib/storage';
-import { saveTimeEntry } from '../lib/database';
-import type { TimeEntry } from '../types';
+import {
+  saveTimeEntry,
+  getActiveTimerFromDb,
+  saveActiveTimerToDb,
+  clearActiveTimerFromDb,
+  subscribeToActiveTimer,
+} from '../lib/database';
+import type { TimeEntry, ActiveTimerData } from '../types';
 import { TIMER_UPDATE_INTERVAL, MILLISECONDS_PER_SECOND } from '../constants';
 import { showSuccess, showError } from '../utils/errorHandler';
+import { useAuth } from '../contexts/AuthContext';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 /**
  * Timer state: idle (not running), running (actively counting), or paused
@@ -22,28 +30,28 @@ interface UseTimerReturn {
   resume: () => void;
   stop: () => Promise<void>; // Now async - saves to database
   reset: () => void;
-}
-
-/**
- * Extended TimeEntry for active timer with runtime state
- */
-interface ActiveTimerData extends TimeEntry {
-  timerState?: 'running' | 'paused'; // Explicit timer state for persistence
+  isSyncing: boolean; // Whether timer is currently syncing to database
+  syncError: Error | null; // Last sync error (if any)
 }
 
 /**
  * Custom hook for managing timer functionality
- * Handles start, pause, resume, stop, and persistence to LocalStorage
+ * Handles start, pause, resume, stop, and persistence to LocalStorage + Supabase
  */
 export const useTimer = (): UseTimerReturn => {
+  const { user } = useAuth(); // Get current authenticated user
+
   const [elapsedTime, setElapsedTime] = useState(0);
   const [state, setState] = useState<TimerState>('idle');
   const [currentEntry, setCurrentEntry] = useState<TimeEntry | null>(null);
-  
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<Error | null>(null);
+
   // Refs to track timer state without causing re-renders
   const intervalRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0); // Timestamp when timer started/resumed
   const pausedTimeRef = useRef<number>(0); // Accumulated paused time in seconds
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
   /**
    * Synchronize timer state from localStorage (triggered by other tabs)
@@ -88,37 +96,109 @@ export const useTimer = (): UseTimerReturn => {
   }, []);
 
   /**
-   * Load active timer from LocalStorage on mount
-   * Auto-resume if timer was running, restore paused if it was paused
+   * Load active timer from both database and localStorage on mount
+   * Implements conflict resolution: latest updatedAt wins
    */
   useEffect(() => {
-    const activeTimer = getActiveTimer() as ActiveTimerData | null;
-    if (activeTimer && !activeTimer.endTime) {
-      const now = Date.now();
-      const wasRunning = activeTimer.timerState === 'running';
-
-      setCurrentEntry(activeTimer);
-
-      if (wasRunning) {
-        // AUTO-RESUME: Timer continues from where it left off
-        const elapsed = Math.floor((now - activeTimer.startTime) / MILLISECONDS_PER_SECOND);
-        setElapsedTime(elapsed);
-        setState('running');
-        startTimeRef.current = activeTimer.startTime;
-        pausedTimeRef.current = 0;
-      } else {
-        // Restore in paused state (backward compatible)
-        const pausedDuration = activeTimer.duration || 0;
-        setElapsedTime(pausedDuration);
-        setState('paused');
-        pausedTimeRef.current = pausedDuration;
-        startTimeRef.current = now - (pausedDuration * MILLISECONDS_PER_SECOND);
+    const initializeTimer = async () => {
+      // Only initialize if user is authenticated
+      if (!user) {
+        // Clear local state if not authenticated
+        setState('idle');
+        setElapsedTime(0);
+        setCurrentEntry(null);
+        return;
       }
-    }
-  }, []);
+
+      try {
+        // 1. Try to load from database first
+        const dbTimer = await getActiveTimerFromDb();
+
+        // 2. Also check localStorage for offline changes
+        const localTimer = getActiveTimer() as ActiveTimerData | null;
+
+        // 3. Conflict resolution: Use most recently updated
+        let timerToUse: ActiveTimerData | null = null;
+
+        if (dbTimer && localTimer) {
+          // Both exist - use the one with latest updatedAt
+          timerToUse = dbTimer.updatedAt > (localTimer.updatedAt || 0) ? dbTimer : localTimer;
+
+          // Sync the winner to both storage layers
+          if (timerToUse === dbTimer) {
+            saveActiveTimer(dbTimer); // Update localStorage
+          } else {
+            await saveActiveTimerToDb(localTimer); // Update database
+          }
+        } else {
+          // Only one exists
+          timerToUse = dbTimer || localTimer;
+
+          // Sync to missing layer
+          if (dbTimer && !localTimer) {
+            saveActiveTimer(dbTimer);
+          } else if (localTimer && !dbTimer) {
+            await saveActiveTimerToDb(localTimer);
+          }
+        }
+
+        // 4. Restore timer state
+        if (timerToUse && !timerToUse.endTime) {
+          const now = Date.now();
+          const wasRunning = timerToUse.timerState === 'running';
+
+          setCurrentEntry(timerToUse);
+
+          if (wasRunning) {
+            // Auto-resume running timer
+            const elapsed = Math.floor((now - timerToUse.startTime) / MILLISECONDS_PER_SECOND);
+            setElapsedTime(elapsed);
+            setState('running');
+            startTimeRef.current = timerToUse.startTime;
+            pausedTimeRef.current = 0;
+          } else {
+            // Restore paused timer
+            const pausedDuration = timerToUse.pausedDuration || 0;
+            setElapsedTime(pausedDuration);
+            setState('paused');
+            pausedTimeRef.current = pausedDuration;
+            startTimeRef.current = now - (pausedDuration * MILLISECONDS_PER_SECOND);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to initialize timer from database:', error);
+        setSyncError(error as Error);
+
+        // Fallback to localStorage only
+        const localTimer = getActiveTimer() as ActiveTimerData | null;
+        if (localTimer && !localTimer.endTime) {
+          const now = Date.now();
+          const wasRunning = localTimer.timerState === 'running';
+
+          setCurrentEntry(localTimer);
+
+          if (wasRunning) {
+            const elapsed = Math.floor((now - localTimer.startTime) / MILLISECONDS_PER_SECOND);
+            setElapsedTime(elapsed);
+            setState('running');
+            startTimeRef.current = localTimer.startTime;
+            pausedTimeRef.current = 0;
+          } else {
+            const pausedDuration = localTimer.pausedDuration || localTimer.duration || 0;
+            setElapsedTime(pausedDuration);
+            setState('paused');
+            pausedTimeRef.current = pausedDuration;
+            startTimeRef.current = now - (pausedDuration * MILLISECONDS_PER_SECOND);
+          }
+        }
+      }
+    };
+
+    initializeTimer();
+  }, [user]);
 
   /**
-   * Listen for timer changes from other tabs
+   * Listen for timer changes from other tabs (localStorage sync)
    */
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
@@ -135,6 +215,52 @@ export const useTimer = (): UseTimerReturn => {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [syncFromStorage]);
+
+  /**
+   * Subscribe to active timer changes from other devices (Realtime sync)
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    // Subscribe to database changes
+    const channel = subscribeToActiveTimer(user.id, (updatedTimer) => {
+      // Check if this change came from this device (avoid feedback loop)
+      const localTimer = getActiveTimer() as ActiveTimerData | null;
+
+      // Ignore if this is our own change (same updatedAt timestamp)
+      if (localTimer && updatedTimer && localTimer.updatedAt === updatedTimer.updatedAt) {
+        return;
+      }
+
+      if (!updatedTimer) {
+        // Timer was cleared on another device
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        setState('idle');
+        setElapsedTime(0);
+        setCurrentEntry(null);
+        pausedTimeRef.current = 0;
+        saveActiveTimer(null); // Clear localStorage
+        showSuccess('Timer stopped on another device');
+        return;
+      }
+
+      // Another device modified the timer - sync state
+      syncFromStorage(updatedTimer);
+    });
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      // Cleanup subscription on unmount
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.unsubscribe();
+        realtimeChannelRef.current = null;
+      }
+    };
+  }, [user, syncFromStorage]);
 
   /**
    * Update elapsed time every second when timer is running
@@ -185,34 +311,74 @@ export const useTimer = (): UseTimerReturn => {
       description,
       createdAt: now,
       updatedAt: now,
-      timerState: 'running', // NEW: Mark as running
+      timerState: 'running',
+      pausedDuration: 0,
     };
 
+    // Update local state immediately (optimistic update)
     setCurrentEntry(newEntry);
     setState('running');
     setElapsedTime(0);
     startTimeRef.current = now;
     pausedTimeRef.current = 0;
+
+    // Save to localStorage (instant)
     saveActiveTimer(newEntry);
-  }, []);
+
+    // Save to database (async, don't block UI)
+    if (user) {
+      setIsSyncing(true);
+      saveActiveTimerToDb(newEntry)
+        .then(() => {
+          setIsSyncing(false);
+          setSyncError(null);
+        })
+        .catch((error) => {
+          setIsSyncing(false);
+          console.error('Failed to sync timer start to database:', error);
+          setSyncError(error);
+          showError('Timer started locally, but sync failed. Will retry.');
+        });
+    }
+  }, [user]);
 
   /**
    * Pause the currently running timer
-   * Saves current duration to LocalStorage
+   * Saves current duration to both localStorage and database
    */
   const pause = useCallback(() => {
     if (state !== 'running' || !currentEntry) return;
 
+    const now = Date.now();
     setState('paused');
     pausedTimeRef.current = elapsedTime;
 
     const updatedEntry: ActiveTimerData = {
       ...currentEntry,
-      duration: elapsedTime,
-      timerState: 'paused', // NEW: Mark as paused
+      timerState: 'paused',
+      pausedDuration: elapsedTime,
+      updatedAt: now,
     };
+
+    // Save locally first
     saveActiveTimer(updatedEntry);
-  }, [state, currentEntry, elapsedTime]);
+    setCurrentEntry(updatedEntry);
+
+    // Sync to database
+    if (user) {
+      setIsSyncing(true);
+      saveActiveTimerToDb(updatedEntry)
+        .then(() => {
+          setIsSyncing(false);
+          setSyncError(null);
+        })
+        .catch((error) => {
+          setIsSyncing(false);
+          console.error('Failed to sync timer pause to database:', error);
+          setSyncError(error);
+        });
+    }
+  }, [state, currentEntry, elapsedTime, user]);
 
   /**
    * Resume a paused timer
@@ -225,18 +391,36 @@ export const useTimer = (): UseTimerReturn => {
     startTimeRef.current = now - (pausedTimeRef.current * MILLISECONDS_PER_SECOND);
     setState('running');
 
-    // NEW: Update storage to mark as running
     const updatedEntry: ActiveTimerData = {
       ...currentEntry,
-      startTime: startTimeRef.current, // Update for accurate calculation
+      startTime: startTimeRef.current,
       timerState: 'running',
+      updatedAt: now,
     };
+
+    // Save locally first
     saveActiveTimer(updatedEntry);
-  }, [state, currentEntry]);
+    setCurrentEntry(updatedEntry);
+
+    // Sync to database
+    if (user) {
+      setIsSyncing(true);
+      saveActiveTimerToDb(updatedEntry)
+        .then(() => {
+          setIsSyncing(false);
+          setSyncError(null);
+        })
+        .catch((error) => {
+          setIsSyncing(false);
+          console.error('Failed to sync timer resume to database:', error);
+          setSyncError(error);
+        });
+    }
+  }, [state, currentEntry, user]);
 
   /**
    * Stop the timer and save the completed session
-   * Saves to database and clears active timer from localStorage
+   * Saves to time_entries and clears from both localStorage and database
    */
   const stop = useCallback(async () => {
     if (state === 'idle' || !currentEntry) return;
@@ -249,28 +433,38 @@ export const useTimer = (): UseTimerReturn => {
       ...currentEntry,
       endTime: now,
       duration: finalDuration,
+      updatedAt: now,
     };
 
     try {
-      // Save to database (async)
+      setIsSyncing(true);
+
+      // Save completed entry to time_entries table
       await saveTimeEntry(completedEntry);
 
-      // Clear active timer from localStorage
-      saveActiveTimer(null);
+      // Clear active timer from BOTH storage layers
+      saveActiveTimer(null); // localStorage
+      if (user) {
+        await clearActiveTimerFromDb(); // database
+      }
 
       // Reset all state
       setState('idle');
       setElapsedTime(0);
       setCurrentEntry(null);
       pausedTimeRef.current = 0;
+      setIsSyncing(false);
+      setSyncError(null);
 
       showSuccess('Session saved successfully!');
     } catch (error) {
+      setIsSyncing(false);
       console.error('Failed to save session:', error);
+      setSyncError(error as Error);
       showError('Failed to save session. Please try again.');
       // Keep timer state so user can retry
     }
-  }, [state, currentEntry, elapsedTime]);
+  }, [state, currentEntry, elapsedTime, user]);
 
   /**
    * Reset timer completely (clears everything)
@@ -281,12 +475,21 @@ export const useTimer = (): UseTimerReturn => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+
+    // Clear from both storage layers
     saveActiveTimer(null);
+    if (user) {
+      clearActiveTimerFromDb().catch((error) => {
+        console.error('Failed to clear timer from database:', error);
+      });
+    }
+
     setState('idle');
     setElapsedTime(0);
     setCurrentEntry(null);
     pausedTimeRef.current = 0;
-  }, []);
+    setSyncError(null);
+  }, [user]);
 
   return {
     elapsedTime,
@@ -297,5 +500,7 @@ export const useTimer = (): UseTimerReturn => {
     resume,
     stop,
     reset,
+    isSyncing,
+    syncError,
   };
 };

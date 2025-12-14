@@ -20,6 +20,21 @@ export interface TimeEntry {
   isManual?: boolean; // Whether this was manually entered or from timer
 }
 
+/**
+ * Active timer data for multi-device sync
+ * Stored in both localStorage and Supabase active_timers table
+ */
+export interface ActiveTimerData {
+  id: string;                    // timer_id (matches TimeEntry.id format)
+  projectId: string;             // Associated project
+  startTime: number;             // Start timestamp in milliseconds
+  description?: string;          // Optional task description
+  timerState: 'running' | 'paused'; // Current timer state
+  pausedDuration: number;        // Accumulated paused time in seconds
+  createdAt: number;             // Creation timestamp in milliseconds
+  updatedAt: number;             // Last update timestamp in milliseconds (for conflict resolution)
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   defaultProject?: string;

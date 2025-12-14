@@ -61,6 +61,7 @@ type TimeEntryRow = {
   created_at: string;
   updated_at: string;
   is_manual: boolean | false;
+  is_deactivated: boolean | false;
 };
 
 type ActiveTimerRow = {
@@ -106,6 +107,7 @@ const rowToTimeEntry = (row: TimeEntryRow): TimeEntry => ({
   createdAt: new Date(row.created_at).getTime(),
   updatedAt: new Date(row.updated_at).getTime(),
   isManual: row.is_manual || undefined,
+  isDeactivated: row.is_deactivated || undefined,
 });
 
 /**
@@ -138,6 +140,7 @@ const timeEntryToInsert = (
   description: entry.description || null,
   duration: entry.duration || null,
   is_manual: entry.isManual || false,
+  is_deactivated: entry.isDeactivated || false,
 });
 
 /**
@@ -396,6 +399,32 @@ export const deleteTimeEntry = async (id: string): Promise<void> => {
     requestCache.clearPattern('time_entries|recent_sessions');
   } catch (error) {
     return throwDatabaseError('delete time entry', error);
+  }
+};
+
+/**
+ * Toggle deactivation status of a time entry
+ * Deactivated sessions are excluded from statistics but remain visible in the UI
+ */
+export const toggleTimeEntryDeactivation = async (
+  id: string,
+  isDeactivated: boolean
+): Promise<void> => {
+  try {
+    const userId = await getCurrentUserId();
+
+    const { error } = await supabase
+      .from('time_entries')
+      .update({ is_deactivated: isDeactivated })
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+
+    // Clear cache after mutation
+    requestCache.clearPattern('time_entries|recent_sessions');
+  } catch (error) {
+    return throwDatabaseError('toggle time entry deactivation', error);
   }
 };
 

@@ -38,6 +38,7 @@ export interface TimeEntry {
   createdAt: number; // Timestamp when entry was created
   updatedAt: number; // Timestamp when entry was last modified
   isManual?: boolean; // Whether this was manually entered or from timer
+  isDeactivated?: boolean; // Soft delete flag: excluded from statistics but visible in UI
 }
 
 /**

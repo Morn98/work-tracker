@@ -49,6 +49,8 @@ const calculateTimeInRange = (sessions: Session[], startDate: Date, endDate: Dat
     .filter((session) => {
       // Only include completed sessions (those with endTime)
       if (!session.endTime) return false;
+      // Exclude deactivated sessions from statistics
+      if (session.isDeactivated) return false;
       const sessionDate = new Date(session.endTime);
       return sessionDate >= startDate && sessionDate <= endDate;
     })
@@ -114,8 +116,11 @@ export const groupSessionsByProject = (
 ): ProjectStats[] => {
   const projectStatsMap = new Map<string, ProjectStats>();
 
+  // Filter out deactivated sessions before aggregating
+  const activeSessions = sessions.filter((session) => !session.isDeactivated);
+
   // Aggregate statistics for each project
-  sessions.forEach((session) => {
+  activeSessions.forEach((session) => {
     const project = projects.find((p) => p.id === session.projectId);
     const projectName = project?.name || 'Unknown Project';
     const projectColor = project?.color;
@@ -169,6 +174,8 @@ export const getDailyBreakdown = (sessions: Session[], days: number = DAILY_BREA
     // Filter sessions for this specific day
     const daySessions = sessions.filter((session) => {
       if (!session.endTime) return false;
+      // Exclude deactivated sessions from statistics
+      if (session.isDeactivated) return false;
       const sessionDate = new Date(session.endTime);
       return sessionDate >= date && sessionDate < nextDate;
     });

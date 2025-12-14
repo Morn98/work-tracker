@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { PageContainer, Header, Card, Button, EmptyState } from '../components/ui';
-import { saveProject, deleteProject } from '../lib/storage';
+import { saveProject, deleteProject } from '../lib/database';
 import { useProjects } from '../hooks/useProjects';
-import { showError } from '../utils/errorHandler';
+import { showError, showSuccess } from '../utils/errorHandler';
 import { DEFAULT_PROJECT_COLOR } from '../constants';
 import type { Project } from '../types';
 
@@ -44,7 +44,7 @@ export const Projects = () => {
     setFormData({ name: '', color: COLOR_OPTIONS[0].value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name.trim()) {
@@ -58,18 +58,28 @@ export const Projects = () => {
       name: formData.name.trim(),
       color: formData.color,
       createdAt: editingProject?.createdAt || now,
-      updatedAt: now, // Will be overwritten by saveProject, but included for completeness
+      updatedAt: now,
     };
 
-    saveProject(project);
-    refresh();
-    handleCloseForm();
+    try {
+      await saveProject(project);
+      await refresh();
+      handleCloseForm();
+      showSuccess(editingProject ? 'Project updated!' : 'Project created!');
+    } catch (error) {
+      // Error already shown by database layer
+    }
   };
 
-  const handleDelete = (id: string) => {
-    deleteProject(id);
-    refresh();
-    setDeleteConfirmId(null);
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteProject(id);
+      await refresh();
+      setDeleteConfirmId(null);
+      showSuccess('Project deleted!');
+    } catch (error) {
+      // Error already shown by database layer
+    }
   };
 
   const handleDeleteClick = (id: string) => {

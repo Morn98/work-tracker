@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -11,21 +10,10 @@ import { Statistics } from './pages/Statistics';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
-import { migrateData } from './lib/storage';
 
 // Wrapper component to access auth state
 const AppContent = () => {
   const { user } = useAuth();
-
-  // Run data migration on app startup to add missing timestamps to existing data
-  useEffect(() => {
-    const result = migrateData();
-    if (result.migrated) {
-      console.log(
-        `Data migration complete: ${result.projectsUpdated} projects and ${result.entriesUpdated} entries updated`
-      );
-    }
-  }, []);
 
   return (
     <BrowserRouter basename="/">

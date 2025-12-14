@@ -6,7 +6,8 @@ import { ManualEntry } from '../components/timer';
 import { useTimer } from '../hooks/useTimer';
 import { useProjects } from '../hooks/useProjects';
 import { useTodaySessions } from '../hooks/useTodaySessions';
-import { saveTimeEntry, getActiveTimer } from '../lib/storage';
+import { saveTimeEntry } from '../lib/database';
+import { getActiveTimer } from '../lib/storage';
 import { formatTime } from '../utils/formatTime';
 import { showError, showSuccess } from '../utils/errorHandler';
 import type { TimeEntry } from '../types';
@@ -15,7 +16,7 @@ export const Timer = () => {
   const { elapsedTime, state, currentEntry, start, pause, resume, stop } = useTimer();
   const { projects } = useProjects();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const todaySessions = useTodaySessions(refreshTrigger);
+  const { sessions: todaySessions } = useTodaySessions(refreshTrigger);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -55,8 +56,8 @@ export const Timer = () => {
     start(selectedProjectId, description || undefined);
   };
 
-  const handleStop = () => {
-    stop();
+  const handleStop = async () => {
+    await stop();
     setSelectedProjectId('');
     setDescription('');
     // Refresh sessions list after stopping timer
@@ -73,7 +74,7 @@ export const Timer = () => {
     return project?.color;
   };
 
-  const handleManualEntrySave = (duration: number, startTime: number, endTime: number) => {
+  const handleManualEntrySave = async (duration: number, startTime: number, endTime: number) => {
     if (!selectedProjectId) {
       showError('Please select a project first');
       return;
@@ -92,9 +93,13 @@ export const Timer = () => {
       isManual: true,
     };
 
-    saveTimeEntry(manualEntry);
-    showSuccess('Manual time entry saved successfully!');
-    setRefreshTrigger((prev) => prev + 1);
+    try {
+      await saveTimeEntry(manualEntry);
+      showSuccess('Manual time entry saved successfully!');
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      // Error already shown by database layer
+    }
   };
 
   const isRunning = state === 'running';

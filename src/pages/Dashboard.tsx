@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { PageContainer, Header, Card, StatCard, EmptyState } from '../components/ui';
 import { SessionItem } from '../components/sessions';
-import { getProjects, getSessions } from '../lib/storage';
-import { getWeeklyTotal, getTodayTotal } from '../utils/statistics';
+import { getProjects, getRecentSessions, getTodayTotal, getWeeklyTotal } from '../lib/database';
 import { formatDuration } from '../utils/formatTime';
+import { showError } from '../utils/errorHandler';
 import { MAX_RECENT_SESSIONS } from '../constants';
 import type { TimeEntry } from '../types';
 
@@ -16,25 +16,34 @@ export const Dashboard = () => {
   const [recentSessions, setRecentSessions] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Array<{ id: string; name: string; color?: string }>>([]);
   const [visibleSessionCount, setVisibleSessionCount] = useState(4);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const loadData = () => {
-    const sessions = getSessions();
-    const loadedProjects = getProjects();
+  const loadData = async () => {
+    setIsLoading(true);
 
-    setTodayTotal(getTodayTotal(sessions));
-    setWeeklyTotal(getWeeklyTotal(sessions));
-    setProjects(loadedProjects);
+    try {
+      // Load all data in parallel
+      const [loadedProjects, sessions, todayTime, weeklyTime] = await Promise.all([
+        getProjects(),
+        getRecentSessions(MAX_RECENT_SESSIONS),
+        getTodayTotal(),
+        getWeeklyTotal(),
+      ]);
 
-    // Get active projects (projects that have at least one session)
-    const projectIdsWithSessions = new Set(sessions.map((s) => s.projectId));
-    setActiveProjectsCount(projectIdsWithSessions.size);
+      setProjects(loadedProjects);
+      setRecentSessions(sessions);
+      setTodayTotal(todayTime);
+      setWeeklyTotal(weeklyTime);
 
-    // Get recent sessions (most recent first, limit to MAX_RECENT_SESSIONS)
-    const sortedSessions = sessions
-      .filter((s) => s.endTime) // Only completed sessions
-      .sort((a, b) => (b.endTime || 0) - (a.endTime || 0))
-      .slice(0, MAX_RECENT_SESSIONS);
-    setRecentSessions(sortedSessions);
+      // Calculate active projects count (projects with sessions)
+      const projectIdsWithSessions = new Set(sessions.map((s) => s.projectId));
+      setActiveProjectsCount(projectIdsWithSessions.size);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load dashboard data';
+      showError(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -84,6 +93,23 @@ export const Dashboard = () => {
     const project = projects.find((p) => p.id === projectId);
     return project?.color;
   };
+
+  if (isLoading) {
+    return (
+      <PageContainer>
+        <Header
+          title="Dashboard"
+          description="Overview of your time tracking activities"
+        />
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-400">Loading dashboard...</p>
+          </div>
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer>

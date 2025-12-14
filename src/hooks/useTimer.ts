@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getActiveTimer, saveActiveTimer, getTimeEntries, saveTimeEntries } from '../lib/storage';
+import { getActiveTimer, saveActiveTimer } from '../lib/storage';
+import { saveTimeEntry } from '../lib/database';
 import type { TimeEntry } from '../types';
 import { TIMER_UPDATE_INTERVAL, MILLISECONDS_PER_SECOND } from '../constants';
-import { showSuccess } from '../utils/errorHandler';
+import { showSuccess, showError } from '../utils/errorHandler';
 
 /**
  * Timer state: idle (not running), running (actively counting), or paused
@@ -19,7 +20,7 @@ interface UseTimerReturn {
   start: (projectId: string, description?: string) => void;
   pause: () => void;
   resume: () => void;
-  stop: () => void;
+  stop: () => Promise<void>; // Now async - saves to database
   reset: () => void;
 }
 
@@ -235,9 +236,9 @@ export const useTimer = (): UseTimerReturn => {
 
   /**
    * Stop the timer and save the completed session
-   * Saves to time entries and clears active timer
+   * Saves to database and clears active timer from localStorage
    */
-  const stop = useCallback(() => {
+  const stop = useCallback(async () => {
     if (state === 'idle' || !currentEntry) return;
 
     const now = Date.now();
@@ -250,19 +251,25 @@ export const useTimer = (): UseTimerReturn => {
       duration: finalDuration,
     };
 
-    // Save to time entries (add to beginning of array)
-    const entries = getTimeEntries();
-    entries.unshift(completedEntry);
-    saveTimeEntries(entries);
+    try {
+      // Save to database (async)
+      await saveTimeEntry(completedEntry);
 
-    // Clear active timer
-    saveActiveTimer(null);
+      // Clear active timer from localStorage
+      saveActiveTimer(null);
 
-    // Reset all state
-    setState('idle');
-    setElapsedTime(0);
-    setCurrentEntry(null);
-    pausedTimeRef.current = 0;
+      // Reset all state
+      setState('idle');
+      setElapsedTime(0);
+      setCurrentEntry(null);
+      pausedTimeRef.current = 0;
+
+      showSuccess('Session saved successfully!');
+    } catch (error) {
+      console.error('Failed to save session:', error);
+      showError('Failed to save session. Please try again.');
+      // Keep timer state so user can retry
+    }
   }, [state, currentEntry, elapsedTime]);
 
   /**

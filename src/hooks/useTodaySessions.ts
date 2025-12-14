@@ -1,36 +1,37 @@
 import { useState, useEffect } from 'react';
-import { getTimeEntries } from '../lib/storage';
-import { getTodayStart } from '../utils/dateHelpers';
+import { getTodaySessions } from '../lib/database';
+import { showError } from '../utils/errorHandler';
 import { MAX_RECENT_SESSIONS } from '../constants';
 import type { TimeEntry } from '../types';
 
 /**
- * Custom hook for loading today's sessions
+ * Custom hook for loading today's sessions from database
  * Automatically refreshes when dependency changes
  */
 export const useTodaySessions = (refreshTrigger?: unknown) => {
   const [sessions, setSessions] = useState<TimeEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const allEntries = getTimeEntries();
-    const todayStart = getTodayStart();
+    const loadSessions = async () => {
+      setIsLoading(true);
 
-    // Filter sessions from today
-    const todaySessions = allEntries.filter((entry) => {
-      if (!entry.endTime) return false;
-      const entryDate = new Date(entry.endTime);
-      return entryDate >= todayStart;
-    });
+      try {
+        const todaySessions = await getTodaySessions(MAX_RECENT_SESSIONS);
+        setSessions(todaySessions);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load sessions';
+        showError(message);
+        setSessions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-    // Sort by end time (most recent first) and limit
-    const sortedSessions = todaySessions
-      .sort((a, b) => (b.endTime || 0) - (a.endTime || 0))
-      .slice(0, MAX_RECENT_SESSIONS);
-
-    setSessions(sortedSessions);
+    loadSessions();
   }, [refreshTrigger]);
 
-  return sessions;
+  return { sessions, isLoading };
 };
 
 

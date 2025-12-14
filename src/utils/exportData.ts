@@ -3,7 +3,8 @@
  */
 
 import type { ExportData } from '../types';
-import { getProjects, getTimeEntries, getSettings } from '../lib/storage';
+import { getProjects, getTimeEntries } from '../lib/database';
+import { getSettings } from '../lib/storage';
 
 // Current schema version
 const SCHEMA_VERSION = '1.0.0';
@@ -12,13 +13,13 @@ const SCHEMA_VERSION = '1.0.0';
 const APP_VERSION = '0.0.0';
 
 /**
- * Generate export data from current LocalStorage
+ * Generate export data from current database
  * @param includeSettings Whether to include app settings in export
  * @returns ExportData object ready for serialization
  */
-export const generateExportData = (includeSettings: boolean = false): ExportData => {
-  const projects = getProjects();
-  const timeEntries = getTimeEntries();
+export const generateExportData = async (includeSettings: boolean = false): Promise<ExportData> => {
+  const projects = await getProjects();
+  const timeEntries = await getTimeEntries();
   const settings = includeSettings ? getSettings() : undefined;
 
   // Calculate summary statistics
@@ -57,8 +58,8 @@ export const generateExportData = (includeSettings: boolean = false): ExportData
  * Export data as JSON file download
  * @param includeSettings Whether to include app settings
  */
-export const exportToJSON = (includeSettings: boolean = false): void => {
-  const exportData = generateExportData(includeSettings);
+export const exportToJSON = async (includeSettings: boolean = false): Promise<void> => {
+  const exportData = await generateExportData(includeSettings);
 
   // Create formatted JSON string
   const jsonString = JSON.stringify(exportData, null, 2);
@@ -86,8 +87,8 @@ export const exportToJSON = (includeSettings: boolean = false): void => {
 /**
  * Get human-readable export summary for display
  */
-export const getExportSummary = (): string => {
-  const data = generateExportData(false);
+export const getExportSummary = async (): Promise<string> => {
+  const data = await generateExportData(false);
   const { summary } = data;
 
   let dateRangeStr = 'No sessions';

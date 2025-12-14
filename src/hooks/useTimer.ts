@@ -57,7 +57,7 @@ export const useTimer = (): UseTimerReturn => {
    * Synchronize timer state from localStorage (triggered by other tabs)
    */
   const syncFromStorage = useCallback((timerData: ActiveTimerData | null) => {
-    if (!timerData || timerData.endTime) {
+    if (!timerData) {
       // Timer completed or cleared in another tab
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -86,7 +86,7 @@ export const useTimer = (): UseTimerReturn => {
       showSuccess('Timer resumed from another tab');
     } else {
       // Restore paused state
-      const pausedDuration = timerData.duration || 0;
+      const pausedDuration = timerData.pausedDuration || 0;
       setElapsedTime(pausedDuration);
       setState('paused');
       pausedTimeRef.current = pausedDuration;
@@ -143,7 +143,7 @@ export const useTimer = (): UseTimerReturn => {
         }
 
         // 4. Restore timer state
-        if (timerToUse && !timerToUse.endTime) {
+        if (timerToUse) {
           const now = Date.now();
           const wasRunning = timerToUse.timerState === 'running';
 
@@ -171,7 +171,7 @@ export const useTimer = (): UseTimerReturn => {
 
         // Fallback to localStorage only
         const localTimer = getActiveTimer() as ActiveTimerData | null;
-        if (localTimer && !localTimer.endTime) {
+        if (localTimer) {
           const now = Date.now();
           const wasRunning = localTimer.timerState === 'running';
 
@@ -184,7 +184,7 @@ export const useTimer = (): UseTimerReturn => {
             startTimeRef.current = localTimer.startTime;
             pausedTimeRef.current = 0;
           } else {
-            const pausedDuration = localTimer.pausedDuration || localTimer.duration || 0;
+            const pausedDuration = localTimer.pausedDuration || 0;
             setElapsedTime(pausedDuration);
             setState('paused');
             pausedTimeRef.current = pausedDuration;
@@ -298,7 +298,7 @@ export const useTimer = (): UseTimerReturn => {
   const start = useCallback((projectId: string, description?: string) => {
     // Prevent starting if there's already an active timer
     const activeTimer = getActiveTimer() as ActiveTimerData | null;
-    if (activeTimer && !activeTimer.endTime) {
+    if (activeTimer) {
       console.warn('A timer is already running');
       return;
     }
@@ -395,6 +395,7 @@ export const useTimer = (): UseTimerReturn => {
       ...currentEntry,
       startTime: startTimeRef.current,
       timerState: 'running',
+      pausedDuration: pausedTimeRef.current,
       updatedAt: now,
     };
 

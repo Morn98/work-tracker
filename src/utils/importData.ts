@@ -9,7 +9,9 @@ import { getActiveTimer, saveActiveTimer } from '../lib/storage';
 // Temporary stubs to make TypeScript happy
 const getProjects = (): Project[] => [];
 const getTimeEntries = (): TimeEntry[] => [];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const saveProjects = (_projects: Project[]): void => {};
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const saveTimeEntries = (_entries: TimeEntry[]): void => {};
 
 // Supported schema versions for import

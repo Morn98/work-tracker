@@ -88,7 +88,7 @@ export const ManualEntry = ({ onSave }: ManualEntryProps) => {
       const startDate = new Date(today);
       startDate.setHours(startHours, startMins, 0, 0);
 
-      let endDate = new Date(today);
+      const endDate = new Date(today);
       endDate.setHours(endHours, endMins, 0, 0);
 
       // If end time is earlier than start time, assume it's the next day

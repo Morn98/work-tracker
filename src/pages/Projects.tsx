@@ -66,7 +66,7 @@ export const Projects = () => {
       await refresh();
       handleCloseForm();
       showSuccess(editingProject ? 'Project updated!' : 'Project created!');
-    } catch (error) {
+    } catch {
       // Error already shown by database layer
     }
   };
@@ -77,7 +77,7 @@ export const Projects = () => {
       await refresh();
       setDeleteConfirmId(null);
       showSuccess('Project deleted!');
-    } catch (error) {
+    } catch {
       // Error already shown by database layer
     }
   };

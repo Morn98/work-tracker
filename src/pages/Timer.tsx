@@ -24,8 +24,9 @@ export const Timer = () => {
   // Load current entry data when timer is active
   useEffect(() => {
     if (currentEntry) {
-      setSelectedProjectId(currentEntry.projectId);
-      setDescription(currentEntry.description || '');
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedProjectId((prev) => currentEntry.projectId !== prev ? currentEntry.projectId : prev);
+      setDescription((prev) => (currentEntry.description || '') !== prev ? (currentEntry.description || '') : prev);
     }
   }, [currentEntry]);
 
@@ -97,7 +98,7 @@ export const Timer = () => {
       await saveTimeEntry(manualEntry);
       showSuccess('Manual time entry saved successfully!');
       setRefreshTrigger((prev) => prev + 1);
-    } catch (error) {
+    } catch {
       // Error already shown by database layer
     }
   };

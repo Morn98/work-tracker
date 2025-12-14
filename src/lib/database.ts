@@ -1,6 +1,30 @@
 /**
- * Supabase Database Layer
- * Handles all database operations for projects and time entries
+ * @module database
+ * @description Supabase Database Layer - All CRUD operations for persistent storage
+ *
+ * Responsibilities:
+ * - Projects CRUD (fetch, save, delete)
+ * - Time Entries CRUD (fetch, save, delete)
+ * - Active Timer sync (fetch, save, delete, realtime subscriptions)
+ * - Type conversion between database rows (snake_case, ISO timestamps) and app types (camelCase, ms timestamps)
+ * - Request caching and deduplication (via RequestCache)
+ *
+ * Data Flow:
+ * App → database.ts → Supabase (Postgres) → database.ts → App
+ * App types (camelCase) ←→ Converters ←→ Database rows (snake_case)
+ *
+ * Dependencies:
+ * - supabase.ts: Client initialization
+ * - requestCache.ts: Deduplication and caching
+ * - types/index.ts: App type interfaces
+ *
+ * Key Patterns:
+ * - All functions handle type conversion automatically
+ * - Cache invalidation on mutations (save, delete)
+ * - Realtime subscriptions for multi-device timer sync
+ *
+ * @see ARCHITECTURE.md for dual-layer storage pattern
+ * @see storage.ts for localStorage layer
  */
 
 import { supabase } from './supabase';

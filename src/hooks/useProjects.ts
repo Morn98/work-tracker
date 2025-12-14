@@ -1,12 +1,31 @@
+/**
+ * @module useProjects
+ * @description Projects Data Hook - Fetch and manage project list
+ *
+ * Responsibilities:
+ * - Auto-fetch projects on mount
+ * - Loading and error state management
+ * - Manual refresh capability
+ *
+ * Data Flow:
+ * useProjects() → database.getProjects() → Supabase → cache → state
+ *
+ * Usage Pattern:
+ * const { projects, isLoading, error, refresh } = useProjects()
+ * // Auto-fetches on mount, call refresh() after mutations
+ *
+ * Dependencies:
+ * - database.ts: getProjects() function
+ * - errorHandler.ts: User feedback for errors
+ *
+ * @see database.ts for CRUD operations
+ * @see Projects.tsx for UI integration
+ */
+
 import { useState, useEffect } from 'react';
 import { getProjects } from '../lib/database';
 import { showError } from '../utils/errorHandler';
 import type { Project } from '../types';
-
-/**
- * Custom hook for managing projects
- * Loads projects from Supabase database and provides refresh functionality
- */
 export const useProjects = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);

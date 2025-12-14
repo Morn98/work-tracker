@@ -1,7 +1,28 @@
 /**
- * LocalStorage Layer for Client-Side Data
- * Handles settings and active timer ONLY
- * Projects and time entries are now stored in Supabase database
+ * @module storage
+ * @description LocalStorage Layer - Offline-first client-side persistence
+ *
+ * Responsibilities:
+ * - App settings (theme preference)
+ * - Active timer state (for instant UI updates and cross-tab sync)
+ *
+ * Data Storage:
+ * - Settings: Persisted permanently, loaded on app start
+ * - Active Timer: Synced with Supabase for multi-device support (see useTimer.ts)
+ *
+ * Storage Keys:
+ * - 'work-tracker-settings': AppSettings JSON
+ * - 'work-tracker-active-timer': ActiveTimerData JSON
+ *
+ * Key Patterns:
+ * - Synchronous operations (instant access)
+ * - Error handling (falls back to defaults on parse errors)
+ * - Cross-tab sync via storage events (see useTimer.ts)
+ *
+ * NOTE: Projects and TimeEntries are NOT stored here - they're in Supabase (see database.ts)
+ *
+ * @see ARCHITECTURE.md for dual-layer storage pattern
+ * @see database.ts for Supabase layer
  */
 
 import type { AppSettings, TimeEntry } from '../types';

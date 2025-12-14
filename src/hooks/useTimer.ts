@@ -1,3 +1,41 @@
+/**
+ * @module useTimer
+ * @description Timer State Machine Hook - Multi-device synchronized timer
+ *
+ * Responsibilities:
+ * - Timer state management (idle → running → paused → idle)
+ * - Elapsed time calculation with pause/resume support
+ * - Multi-device sync via dual-layer storage (localStorage + Supabase)
+ * - Cross-tab sync via storage events
+ * - Real-time updates via Supabase Realtime
+ * - Stale timer detection (>24h auto-clear)
+ *
+ * Timer States:
+ * - idle: No timer running
+ * - running: Timer actively counting
+ * - paused: Timer paused, can be resumed
+ *
+ * Data Flow:
+ * start() → localStorage (instant) → Supabase (background) → Realtime → other devices
+ * pause/resume() → update both layers
+ * stop() → save TimeEntry → clear active timer from both layers
+ *
+ * Sync Strategy:
+ * - Optimistic updates: UI updates instantly via localStorage
+ * - Background sync: Supabase updated asynchronously
+ * - Conflict resolution: Last-write-wins based on updatedAt timestamp
+ * - Cross-tab: storage events trigger re-sync
+ * - Cross-device: Realtime subscriptions trigger re-sync
+ *
+ * Dependencies:
+ * - storage.ts: localStorage operations
+ * - database.ts: Supabase operations + Realtime subscriptions
+ * - AuthContext: User authentication state
+ *
+ * @see ARCHITECTURE.md for multi-device sync details
+ * @see Timer.tsx for UI integration
+ */
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getActiveTimer, saveActiveTimer } from '../lib/storage';
 import {

@@ -1,3 +1,35 @@
+/**
+ * @module statistics
+ * @description Statistics and Data Aggregation Utilities
+ *
+ * Responsibilities:
+ * - Calculate time totals by period (today, week, month)
+ * - Group sessions by project with totals
+ * - Generate daily breakdown for charts
+ * - Frontend-only calculations (no server-side aggregation)
+ *
+ * Key Functions:
+ * - getTodayTotal(sessions): Today's total time
+ * - getWeeklyTotal(sessions): This week's total (Mon-Sun)
+ * - getMonthlyTotal(sessions): This month's total
+ * - groupSessionsByProject(sessions, projects): Per-project stats
+ * - getDailyBreakdown(sessions, days): Daily totals for charts
+ *
+ * Data Flow:
+ * TimeEntry[] → filter by date → sum durations → formatted results
+ *
+ * Performance Note:
+ * - All calculations on client-side (works well for <10k entries)
+ * - Large datasets might benefit from server aggregation
+ *
+ * Dependencies:
+ * - dateHelpers.ts: Date range calculations
+ * - types/index.ts: TimeEntry interface
+ *
+ * @see Statistics.tsx for UI integration
+ * @see ARCHITECTURE.md for frontend aggregation pattern
+ */
+
 import type { TimeEntry } from '../types';
 import { getWeekStart, getWeekEnd, getMonthStart, getMonthEnd, getTodayStart } from './dateHelpers';
 import { DAILY_BREAKDOWN_DAYS } from '../constants';

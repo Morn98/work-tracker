@@ -4,6 +4,7 @@
  */
 
 import { supabase } from './supabase';
+import { requestCache } from './requestCache';
 import type { Project, TimeEntry } from '../types';
 
 // ============================================================================
@@ -21,7 +22,7 @@ type ProjectRow = {
   color: string;
   created_at: string;
   updated_at: string;
-  is_archived: boolean | null;
+  is_archived: boolean | false;
 };
 
 type TimeEntryRow = {
@@ -34,24 +35,7 @@ type TimeEntryRow = {
   duration: number | null;
   created_at: string;
   updated_at: string;
-  is_manual: boolean | null;
-};
-
-/**
- * Statistics types returned from database functions
- */
-export type ProjectStats = {
-  project_id: string;
-  project_name: string;
-  project_color: string;
-  total_time: number;
-  session_count: number;
-};
-
-export type DailyStats = {
-  date: string;
-  day_name: string;
-  total_time: number;
+  is_manual: boolean | false;
 };
 
 // ============================================================================
@@ -98,7 +82,7 @@ const projectToInsert = (
   name: project.name,
   description: project.description || null,
   color: project.color,
-  is_archived: project.isArchived || null,
+  is_archived: project.isArchived || false,
 });
 
 /**
@@ -115,8 +99,8 @@ const timeEntryToInsert = (
   end_time: entry.endTime ? new Date(entry.endTime).toISOString() : null,
   description: entry.description || null,
   duration: entry.duration || null,
-  is_manual: entry.isManual || null,
-});
+  is_manual: entry.isManual || false,
+}); 
 
 // ============================================================================
 // ERROR HANDLING
@@ -153,18 +137,19 @@ const throwDatabaseError = (operation: string, error: unknown): never => {
 
 /**
  * Get current user ID or throw error if not authenticated
+ * Uses cached session to avoid unnecessary network requests
  */
 const getCurrentUserId = async (): Promise<string> => {
   const {
-    data: { user },
+    data: { session },
     error,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getSession();
 
-  if (error || !user) {
+  if (error || !session?.user) {
     throw new DatabaseError('User not authenticated. Please log in again.');
   }
 
-  return user.id;
+  return session.user.id;
 };
 
 // ============================================================================
@@ -175,22 +160,24 @@ const getCurrentUserId = async (): Promise<string> => {
  * Get all projects for the current user
  */
 export const getProjects = async (): Promise<Project[]> => {
-  try {
-    const userId = await getCurrentUserId();
+  return requestCache.fetch('projects', async () => {
+    try {
+      const userId = await getCurrentUserId();
 
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_archived', false)
-      .order('updated_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_archived', false)
+        .order('updated_at', { ascending: false });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    return (data || []).map(rowToProject);
-  } catch (error) {
-    return throwDatabaseError('fetch projects', error);
-  }
+      return (data || []).map(rowToProject);
+    } catch (error) {
+      return throwDatabaseError('fetch projects', error);
+    }
+  });
 };
 
 /**
@@ -206,7 +193,7 @@ export const saveProject = async (project: Project): Promise<void> => {
       .select('id')
       .eq('id', project.id)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     const projectData = projectToInsert(project, userId);
 
@@ -225,6 +212,9 @@ export const saveProject = async (project: Project): Promise<void> => {
 
       if (error) throw error;
     }
+
+    // Clear cache after mutation
+    requestCache.clear('projects');
   } catch (error) {
     return throwDatabaseError('save project', error);
   }
@@ -244,6 +234,9 @@ export const deleteProject = async (id: string): Promise<void> => {
       .eq('user_id', userId);
 
     if (error) throw error;
+
+    // Clear cache after mutation
+    requestCache.clear('projects');
   } catch (error) {
     return throwDatabaseError('delete project', error);
   }
@@ -257,21 +250,23 @@ export const deleteProject = async (id: string): Promise<void> => {
  * Get all time entries for the current user
  */
 export const getTimeEntries = async (): Promise<TimeEntry[]> => {
-  try {
-    const userId = await getCurrentUserId();
+  return requestCache.fetch('time_entries', async () => {
+    try {
+      const userId = await getCurrentUserId();
 
-    const { data, error } = await supabase
-      .from('time_entries')
-      .select('*')
-      .eq('user_id', userId)
-      .order('start_time', { ascending: false });
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('user_id', userId)
+        .order('start_time', { ascending: false });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    return (data || []).map(rowToTimeEntry);
-  } catch (error) {
-    return throwDatabaseError('fetch time entries', error);
-  }
+      return (data || []).map(rowToTimeEntry);
+    } catch (error) {
+      return throwDatabaseError('fetch time entries', error);
+    }
+  });
 };
 
 /**
@@ -287,7 +282,7 @@ export const saveTimeEntry = async (entry: TimeEntry): Promise<void> => {
       .select('id')
       .eq('id', entry.id)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     const entryData = timeEntryToInsert(entry, userId);
 
@@ -306,6 +301,9 @@ export const saveTimeEntry = async (entry: TimeEntry): Promise<void> => {
 
       if (error) throw error;
     }
+
+    // Clear cache after mutation
+    requestCache.clearPattern('time_entries|recent_sessions');
   } catch (error) {
     return throwDatabaseError('save time entry', error);
   }
@@ -325,157 +323,17 @@ export const deleteTimeEntry = async (id: string): Promise<void> => {
       .eq('user_id', userId);
 
     if (error) throw error;
+
+    // Clear cache after mutation
+    requestCache.clearPattern('time_entries|recent_sessions');
   } catch (error) {
     return throwDatabaseError('delete time entry', error);
   }
 };
 
 // ============================================================================
-// STATISTICS QUERIES
+// QUERY HELPERS
 // ============================================================================
-
-/**
- * Get today's total time in seconds
- */
-export const getTodayTotal = async (): Promise<number> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
-
-    const { data, error } = await supabase
-      .from('time_entries')
-      .select('duration')
-      .eq('user_id', userId)
-      .not('end_time', 'is', null)
-      .gte('end_time', todayISO);
-
-    if (error) throw error;
-
-    return (data || []).reduce((sum, entry) => sum + (entry.duration || 0), 0);
-  } catch (error) {
-    return throwDatabaseError('get today total', error);
-  }
-};
-
-/**
- * Get weekly total time in seconds
- */
-export const getWeeklyTotal = async (): Promise<number> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
-    monday.setHours(0, 0, 0, 0);
-    const mondayISO = monday.toISOString();
-
-    const { data, error } = await supabase
-      .from('time_entries')
-      .select('duration')
-      .eq('user_id', userId)
-      .not('end_time', 'is', null)
-      .gte('end_time', mondayISO);
-
-    if (error) throw error;
-
-    return (data || []).reduce((sum, entry) => sum + (entry.duration || 0), 0);
-  } catch (error) {
-    return throwDatabaseError('get weekly total', error);
-  }
-};
-
-/**
- * Get monthly total time in seconds
- */
-export const getMonthlyTotal = async (): Promise<number> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const firstOfMonth = new Date();
-    firstOfMonth.setDate(1);
-    firstOfMonth.setHours(0, 0, 0, 0);
-    const firstOfMonthISO = firstOfMonth.toISOString();
-
-    const { data, error } = await supabase
-      .from('time_entries')
-      .select('duration')
-      .eq('user_id', userId)
-      .not('end_time', 'is', null)
-      .gte('end_time', firstOfMonthISO);
-
-    if (error) throw error;
-
-    return (data || []).reduce((sum, entry) => sum + (entry.duration || 0), 0);
-  } catch (error) {
-    return throwDatabaseError('get monthly total', error);
-  }
-};
-
-/**
- * Get project statistics for current month
- */
-export const getMonthlyProjectStats = async (): Promise<ProjectStats[]> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const { data, error } = await supabase.rpc('get_monthly_project_stats', {
-      p_user_id: userId,
-    });
-
-    if (error) throw error;
-
-    return data || [];
-  } catch (error) {
-    return throwDatabaseError('get project stats', error);
-  }
-};
-
-/**
- * Get daily breakdown for last N days
- */
-export const getDailyBreakdown = async (
-  days: number = 7
-): Promise<DailyStats[]> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const { data, error } = await supabase.rpc('get_daily_breakdown', {
-      p_user_id: userId,
-      p_days: days,
-    });
-
-    if (error) throw error;
-
-    return data || [];
-  } catch (error) {
-    return throwDatabaseError('get daily breakdown', error);
-  }
-};
-
-/**
- * Get today's sessions (completed time entries from today)
- */
-export const getTodaySessions = async (limit: number = 10): Promise<TimeEntry[]> => {
-  try {
-    const userId = await getCurrentUserId();
-
-    const { data, error } = await supabase.rpc('get_today_sessions', {
-      p_user_id: userId,
-      p_limit: limit,
-    });
-
-    if (error) throw error;
-
-    return (data || []).map(rowToTimeEntry);
-  } catch (error) {
-    return throwDatabaseError('get today sessions', error);
-  }
-};
 
 /**
  * Get recent sessions (for dashboard)
@@ -483,23 +341,25 @@ export const getTodaySessions = async (limit: number = 10): Promise<TimeEntry[]>
 export const getRecentSessions = async (
   limit: number = 10
 ): Promise<TimeEntry[]> => {
-  try {
-    const userId = await getCurrentUserId();
+  return requestCache.fetch(`recent_sessions_${limit}`, async () => {
+    try {
+      const userId = await getCurrentUserId();
 
-    const { data, error } = await supabase
-      .from('time_entries')
-      .select('*')
-      .eq('user_id', userId)
-      .not('end_time', 'is', null)
-      .order('end_time', { ascending: false })
-      .limit(limit);
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('user_id', userId)
+        .not('end_time', 'is', null)
+        .order('end_time', { ascending: false })
+        .limit(limit);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    return (data || []).map(rowToTimeEntry);
-  } catch (error) {
-    return throwDatabaseError('get recent sessions', error);
-  }
+      return (data || []).map(rowToTimeEntry);
+    } catch (error) {
+      return throwDatabaseError('get recent sessions', error);
+    }
+  });
 };
 
 // ============================================================================

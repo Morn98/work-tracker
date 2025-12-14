@@ -1,24 +1,24 @@
 import { useState, useEffect } from 'react';
 import { PageContainer, Header, Card, StatCard } from '../components/ui';
 import { BarChart, PieChart } from '../components/charts';
+import { getProjects, getTimeEntries } from '../lib/database';
 import {
   getWeeklyTotal,
   getMonthlyTotal,
-  getMonthlyProjectStats,
+  groupSessionsByProject,
   getDailyBreakdown,
-  getTimeEntries,
-} from '../lib/database';
+} from '../utils/statistics';
 import { showError } from '../utils/errorHandler';
 import { formatDuration } from '../utils/formatTime';
 import { SECONDS_PER_HOUR, TOP_PROJECTS_COUNT, DAILY_BREAKDOWN_DAYS } from '../constants';
-import type { ProjectStats, DailyStats } from '../lib/database';
+import type { TimeEntry } from '../types';
 
 export const Statistics = () => {
-  const [totalSessionsCount, setTotalSessionsCount] = useState(0);
+  const [sessions, setSessions] = useState<TimeEntry[]>([]);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [monthlyTotal, setMonthlyTotal] = useState(0);
-  const [projectStats, setProjectStats] = useState<ProjectStats[]>([]);
-  const [dailyBreakdown, setDailyBreakdown] = useState<DailyStats[]>([]);
+  const [projectStats, setProjectStats] = useState<ReturnType<typeof groupSessionsByProject>>([]);
+  const [dailyBreakdown, setDailyBreakdown] = useState<ReturnType<typeof getDailyBreakdown>>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -29,20 +29,28 @@ export const Statistics = () => {
     setIsLoading(true);
 
     try {
-      // Load all statistics in parallel from server-side aggregations
-      const [sessions, weekly, monthly, monthlyProjects, daily] = await Promise.all([
+      // Load data from database
+      const [loadedSessions, loadedProjects] = await Promise.all([
         getTimeEntries(),
-        getWeeklyTotal(),
-        getMonthlyTotal(),
-        getMonthlyProjectStats(),
-        getDailyBreakdown(DAILY_BREAKDOWN_DAYS),
+        getProjects(),
       ]);
 
-      setTotalSessionsCount(sessions.length);
-      setWeeklyTotal(weekly);
-      setMonthlyTotal(monthly);
-      setProjectStats(monthlyProjects);
-      setDailyBreakdown(daily);
+      // Filter sessions for current month only for project stats
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const currentMonthSessions = loadedSessions.filter((session) => {
+        if (!session.endTime) return false;
+        const sessionDate = new Date(session.endTime);
+        return sessionDate >= monthStart && sessionDate <= monthEnd;
+      });
+
+      // Calculate statistics on frontend
+      setSessions(loadedSessions);
+      setWeeklyTotal(getWeeklyTotal(loadedSessions));
+      setMonthlyTotal(getMonthlyTotal(loadedSessions));
+      setProjectStats(groupSessionsByProject(currentMonthSessions, loadedProjects));
+      setDailyBreakdown(getDailyBreakdown(loadedSessions, DAILY_BREAKDOWN_DAYS));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load statistics';
       showError(message);
@@ -53,24 +61,24 @@ export const Statistics = () => {
 
   // Prepare data for charts
   const projectChartData = projectStats.slice(0, TOP_PROJECTS_COUNT).map((stat) => ({
-    label: stat.project_name,
-    value: stat.total_time / SECONDS_PER_HOUR, // Convert to hours for display
-    color: stat.project_color || '#3B82F6',
+    label: stat.projectName,
+    value: stat.totalTime / SECONDS_PER_HOUR, // Convert to hours for display
+    color: stat.color || '#3B82F6',
   }));
 
   const dailyChartData = dailyBreakdown.map((day) => ({
-    label: day.day_name,
-    value: day.total_time / SECONDS_PER_HOUR, // Convert to hours
+    label: day.dayName,
+    value: day.totalTime / SECONDS_PER_HOUR, // Convert to hours
     color: '#3B82F6',
   }));
 
   const pieChartData = projectStats.map((stat) => ({
-    label: stat.project_name,
-    value: stat.total_time,
-    color: stat.project_color || '#3B82F6',
+    label: stat.projectName,
+    value: stat.totalTime,
+    color: stat.color || '#3B82F6',
   }));
 
-  const hasData = totalSessionsCount > 0;
+  const hasData = sessions.length > 0;
 
   if (isLoading) {
     return (
@@ -110,7 +118,7 @@ export const Statistics = () => {
         />
         <StatCard
           label="Total Sessions"
-          value={totalSessionsCount}
+          value={sessions.length}
           description="All time sessions"
           icon="📊"
           color="purple"
@@ -176,29 +184,29 @@ export const Statistics = () => {
             <div className="flex-1 space-y-3">
               {projectStats.map((stat) => (
                 <div
-                  key={stat.project_id}
+                  key={stat.projectId}
                   className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
                 >
                   <div className="flex items-center gap-3">
                     <div
                       className="w-4 h-4 rounded-full"
-                      style={{ backgroundColor: stat.project_color || '#3B82F6' }}
+                      style={{ backgroundColor: stat.color || '#3B82F6' }}
                     />
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">
-                        {stat.project_name}
+                        {stat.projectName}
                       </p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {stat.session_count} {stat.session_count === 1 ? 'session' : 'sessions'}
+                        {stat.sessionCount} {stat.sessionCount === 1 ? 'session' : 'sessions'}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-gray-900 dark:text-white">
-                      {formatDuration(stat.total_time)}
+                      {formatDuration(stat.totalTime)}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {((stat.total_time / (monthlyTotal || 1)) * 100).toFixed(1)}% of month
+                      {((stat.totalTime / (monthlyTotal || 1)) * 100).toFixed(1)}% of month
                     </p>
                   </div>
                 </div>

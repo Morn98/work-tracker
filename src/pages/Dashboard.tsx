@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { PageContainer, Header, Card, StatCard, EmptyState } from '../components/ui';
 import { SessionItem } from '../components/sessions';
-import { getProjects, getRecentSessions, getTodayTotal, getWeeklyTotal } from '../lib/database';
+import { getProjects, getRecentSessions, getTimeEntries } from '../lib/database';
+import { getTodayTotal, getWeeklyTotal } from '../utils/statistics';
 import { formatDuration } from '../utils/formatTime';
 import { showError } from '../utils/errorHandler';
 import { MAX_RECENT_SESSIONS } from '../constants';
 import type { TimeEntry } from '../types';
 
 export const Dashboard = () => {
-  const location = useLocation();
   const [todayTotal, setTodayTotal] = useState(0);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [activeProjectsCount, setActiveProjectsCount] = useState(0);
@@ -18,25 +18,27 @@ export const Dashboard = () => {
   const [visibleSessionCount, setVisibleSessionCount] = useState(4);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
 
     try {
       // Load all data in parallel
-      const [loadedProjects, sessions, todayTime, weeklyTime] = await Promise.all([
+      // Need to fetch ALL time entries for accurate statistics
+      const [loadedProjects, recentSessionsData, allSessions] = await Promise.all([
         getProjects(),
         getRecentSessions(MAX_RECENT_SESSIONS),
-        getTodayTotal(),
-        getWeeklyTotal(),
+        getTimeEntries(), // Fetch all sessions for accurate statistics
       ]);
 
       setProjects(loadedProjects);
-      setRecentSessions(sessions);
-      setTodayTotal(todayTime);
-      setWeeklyTotal(weeklyTime);
+      setRecentSessions(recentSessionsData);
 
-      // Calculate active projects count (projects with sessions)
-      const projectIdsWithSessions = new Set(sessions.map((s) => s.projectId));
+      // Calculate statistics on frontend using ALL sessions
+      setTodayTotal(getTodayTotal(allSessions));
+      setWeeklyTotal(getWeeklyTotal(allSessions));
+
+      // Calculate active projects count
+      const projectIdsWithSessions = new Set(allSessions.map((s) => s.projectId));
       setActiveProjectsCount(projectIdsWithSessions.size);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load dashboard data';
@@ -44,45 +46,11 @@ export const Dashboard = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-
-    // Refresh data when window gains focus (user might have added sessions in another tab)
-    const handleFocus = () => {
-      loadData();
-    };
-    window.addEventListener('focus', handleFocus);
-
-    // Also refresh periodically (every 10 seconds) to catch updates
-    const interval = setInterval(loadData, 10000);
-
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      clearInterval(interval);
-    };
-  }, []);
-
-  // Refresh when component becomes visible (user navigates back to Dashboard)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadData();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  // Refresh when navigating to Dashboard (React Router location change)
-  useEffect(() => {
-    if (location.pathname === '/') {
-      loadData();
-    }
-  }, [location.pathname]);
+  }, [loadData]);
 
   const getProjectName = (projectId: string): string => {
     const project = projects.find((p) => p.id === projectId);

@@ -4,15 +4,14 @@
 
 import type { ExportData, Project, TimeEntry } from '../types';
 import { getActiveTimer, saveActiveTimer } from '../lib/storage';
-
-// TODO: Re-implement with database functions
-// Temporary stubs to make TypeScript happy
-const getProjects = (): Project[] => [];
-const getTimeEntries = (): TimeEntry[] => [];
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const saveProjects = (_projects: Project[]): void => {};
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const saveTimeEntries = (_entries: TimeEntry[]): void => {};
+import {
+  getProjects as getProjectsFromDb,
+  getTimeEntries as getTimeEntriesFromDb,
+  saveProject,
+  saveTimeEntry,
+  deleteProject,
+  deleteTimeEntry
+} from '../lib/database';
 
 // Supported schema versions for import
 const SUPPORTED_VERSIONS = ['1.0.0'];
@@ -49,7 +48,7 @@ export interface ImportResult {
  * @param data - Parsed JSON data to validate
  * @returns Validation result with errors and warnings
  */
-export const validateExportData = (data: unknown): ValidationResult => {
+export const validateExportData = async (data: unknown): Promise<ValidationResult> => {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -137,8 +136,8 @@ export const validateExportData = (data: unknown): ValidationResult => {
 
   // 6. Check for ID collisions with existing data (append mode concern)
   if (Array.isArray(exportData.projects) && Array.isArray(exportData.timeEntries)) {
-    const existingProjects = getProjects();
-    const existingEntries = getTimeEntries();
+    const existingProjects = await getProjectsFromDb();
+    const existingEntries = await getTimeEntriesFromDb();
 
     const existingProjectIds = new Set(existingProjects.map((p) => p.id));
     const existingEntryIds = new Set(existingEntries.map((e) => e.id));
@@ -172,10 +171,10 @@ export const validateExportData = (data: unknown): ValidationResult => {
  * @param options - Import options (merge strategy, etc.)
  * @returns Import result with statistics
  */
-export const importData = (
+export const importData = async (
   data: ExportData,
   options: ImportOptions
-): ImportResult => {
+): Promise<ImportResult> => {
   const errors: string[] = [];
   let projectsImported = 0;
   let entriesImported = 0;
@@ -217,8 +216,20 @@ export const importData = (
       // BUT preserve active timer if it exists
       const activeTimer = getActiveTimer();
 
-      saveProjects(cleanedProjects);
-      saveTimeEntries(cleanedEntries);
+      // Delete all existing data
+      const existingProjects = await getProjectsFromDb();
+      const existingEntries = await getTimeEntriesFromDb();
+
+      await Promise.all([
+        ...existingEntries.map(entry => deleteTimeEntry(entry.id)),
+        ...existingProjects.map(project => deleteProject(project.id))
+      ]);
+
+      // Save imported data
+      await Promise.all([
+        ...cleanedProjects.map(project => saveProject(project)),
+        ...cleanedEntries.map(entry => saveTimeEntry(entry))
+      ]);
 
       // If there was an active timer and it references a valid project, keep it
       if (activeTimer && !activeTimer.endTime) {
@@ -240,8 +251,8 @@ export const importData = (
       entriesImported = cleanedEntries.length;
     } else {
       // Append: Merge with existing data
-      const existingProjects = getProjects();
-      const existingEntries = getTimeEntries();
+      const existingProjects = await getProjectsFromDb();
+      const existingEntries = await getTimeEntriesFromDb();
 
       // For projects: replace if ID exists, otherwise add
       const projectMap = new Map(existingProjects.map((p) => [p.id, p]));
@@ -257,8 +268,11 @@ export const importData = (
       });
       const mergedEntries = Array.from(entryMap.values());
 
-      saveProjects(mergedProjects);
-      saveTimeEntries(mergedEntries);
+      // Save all merged data
+      await Promise.all([
+        ...mergedProjects.map(project => saveProject(project)),
+        ...mergedEntries.map(entry => saveTimeEntry(entry))
+      ]);
 
       projectsImported = cleanedProjects.length;
       entriesImported = cleanedEntries.length;
@@ -331,13 +345,13 @@ Import Preview:
  * @param fileContent - Raw file content string
  * @returns Parsed and validated export data, or null if invalid
  */
-export const parseImportFile = (fileContent: string): {
+export const parseImportFile = async (fileContent: string): Promise<{
   data: ExportData | null;
   validation: ValidationResult;
-} => {
+}> => {
   try {
     const parsed = JSON.parse(fileContent);
-    const validation = validateExportData(parsed);
+    const validation = await validateExportData(parsed);
 
     if (validation.valid) {
       return { data: parsed as ExportData, validation };

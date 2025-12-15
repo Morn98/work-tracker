@@ -1,29 +1,61 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageContainer, Header, Card, Button } from '../components/ui';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-// TODO: Re-implement export/import with database functions
-// import { exportToJSON, getExportSummary } from '../utils/exportData';
-// import {
-//   parseImportFile,
-//   importData,
-//   getImportSummary,
-//   type ImportOptions,
-//   type ValidationResult,
-// } from '../utils/importData';
-// import type { ExportData } from '../types';
-import { clearLocalStorage } from '../lib/storage';
+import { exportToJSON, getExportSummary } from '../utils/exportData';
+import {
+  parseImportFile,
+  importData,
+  getImportSummary,
+  type ImportOptions,
+  type ValidationResult,
+} from '../utils/importData';
+import type { ExportData } from '../types';
 import { showSuccess, showError } from '../utils/errorHandler';
 import { getTimeEntries, toggleTimeEntryDeactivation, getProjects } from '../lib/database';
 import { formatDateTime, formatDuration } from '../utils/formatTime';
 import type { TimeEntry, Project } from '../types';
 
+// Export Preview Component
+const ExportPreview = () => {
+  const [summary, setSummary] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSummary = async () => {
+      try {
+        const summaryText = await getExportSummary();
+        setSummary(summaryText);
+      } catch (error) {
+        console.error('Failed to load export summary:', error);
+        setSummary('Failed to load export preview');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadSummary();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+      {summary}
+    </div>
+  );
+};
+
 export const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [deactivatedSessions, setDeactivatedSessions] = useState<TimeEntry[]>([]);
   const [activeSessions, setActiveSessions] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -32,45 +64,96 @@ export const Settings = () => {
   const [showDeactivatedSection, setShowDeactivatedSection] = useState(false);
   const [showAllSessionsSection, setShowAllSessionsSection] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [showExportPreview, setShowExportPreview] = useState(false);
+  const [importFile, setImportFile] = useState<ExportData | null>(null);
+  const [importValidation, setImportValidation] = useState<ValidationResult | null>(null);
+  const [showImportPreview, setShowImportPreview] = useState(false);
+  const [mergeStrategy, setMergeStrategy] = useState<'replace' | 'append'>('append');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // TODO: Re-implement export/import functionality
-  // const [showExportPreview, setShowExportPreview] = useState(false);
-  // const [importFile, setImportFile] = useState<ExportData | null>(null);
-  // const [importValidation, setImportValidation] = useState<ValidationResult | null>(null);
-  // const [showImportPreview, setShowImportPreview] = useState(false);
-  // const [mergeStrategy, setMergeStrategy] = useState<'replace' | 'append'>('append');
-  // const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // const handleExportData = async () => {
-  //   try {
-  //     await exportToJSON(false);
-  //     showSuccess('Data exported successfully!');
-  //   } catch (error) {
-  //     console.error('Export error:', error);
-  //     showError('Failed to export data. Please try again.');
-  //   }
-  // };
-
-  const handleClearData = () => {
+  const handleExportData = async () => {
     try {
-      clearLocalStorage();
-      showSuccess('Local storage cleared successfully!');
-      setShowClearConfirm(false);
-      // Reload the page to reset the app state
-      window.location.reload();
+      await exportToJSON(false);
+      showSuccess('Data exported successfully!');
     } catch (error) {
-      console.error('Clear data error:', error);
-      showError('Failed to clear local storage. Please try again.');
+      console.error('Export error:', error);
+      showError('Failed to export data. Please try again.');
     }
   };
 
-  // TODO: Re-implement these functions
-  // const toggleExportPreview = () => {
-  //   setShowExportPreview(!showExportPreview);
-  // };
-  // const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => { ... };
-  // const handleImportData = () => { ... };
-  // const handleCancelImport = () => { ... };
+  const toggleExportPreview = async () => {
+    setShowExportPreview(!showExportPreview);
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const fileContent = await file.text();
+      const { data, validation } = await parseImportFile(fileContent);
+
+      setImportFile(data);
+      setImportValidation(validation);
+
+      if (validation.valid && data) {
+        setShowImportPreview(true);
+      } else {
+        showError(
+          `Invalid import file:\n${validation.errors.join('\n')}`
+        );
+      }
+    } catch (error) {
+      console.error('File read error:', error);
+      showError('Failed to read import file. Please try again.');
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImportData = async () => {
+    if (!importFile) return;
+
+    try {
+      const options: ImportOptions = {
+        mergeStrategy,
+        includeSettings: false,
+      };
+
+      const result = await importData(importFile, options);
+
+      if (result.success) {
+        showSuccess(
+          `Import successful!\n${result.projectsImported} projects and ${result.entriesImported} time entries imported.`
+        );
+        setShowImportPreview(false);
+        setImportFile(null);
+        setImportValidation(null);
+
+        // Reload data if sections are visible
+        if (showDeactivatedSection) {
+          loadDeactivatedSessions();
+        }
+        if (showAllSessionsSection) {
+          loadAllSessions();
+        }
+      } else {
+        showError(`Import failed:\n${result.errors.join('\n')}`);
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      showError('Failed to import data. Please try again.');
+    }
+  };
+
+  const handleCancelImport = () => {
+    setShowImportPreview(false);
+    setImportFile(null);
+    setImportValidation(null);
+  };
 
   useEffect(() => {
     if (showDeactivatedSection) {
@@ -240,35 +323,104 @@ export const Settings = () => {
               Your projects and time entries are stored in the Supabase database. Settings and active timer are stored locally in your browser.
             </p>
 
-            {/* TODO: Re-implement Import/Export functionality with database */}
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                <strong>Note:</strong> Import/Export functionality is temporarily disabled during database migration. Your data is safely stored in Supabase.
-              </p>
+            {/* Export Section */}
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+                  Export Data
+                </h4>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button variant="secondary" onClick={handleExportData}>
+                    📥 Export to JSON
+                  </Button>
+                  <Button variant="secondary" onClick={toggleExportPreview}>
+                    {showExportPreview ? '🔼 Hide Preview' : '🔽 Show Preview'}
+                  </Button>
+                </div>
+
+                {showExportPreview && (
+                  <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <ExportPreview />
+                  </div>
+                )}
+              </div>
+
+              {/* Import Section */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+                  Import Data
+                </h4>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileSelect}
+                  className="block w-full text-sm text-gray-900 dark:text-white
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-lg file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    dark:file:bg-blue-900/30 dark:file:text-blue-300
+                    hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50
+                    file:cursor-pointer cursor-pointer"
+                />
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  Select a JSON file exported from Work Tracker
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-4">
-              {!showClearConfirm ? (
-                <Button variant="danger" onClick={() => setShowClearConfirm(true)}>
-                  🗑️ Clear Local Storage
-                </Button>
-              ) : (
-                <>
-                  <Button variant="danger" onClick={handleClearData}>
-                    ⚠️ Confirm Delete
-                  </Button>
-                  <Button variant="secondary" onClick={() => setShowClearConfirm(false)}>
-                    Cancel
-                  </Button>
-                </>
-              )}
-            </div>
+            {/* Import Preview Dialog */}
+            {showImportPreview && importFile && importValidation && (
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-4">
+                <h4 className="font-medium text-blue-900 dark:text-blue-100">
+                  Import Preview
+                </h4>
 
-            <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Note:</strong> Clear All Data will only clear your local browser storage (active timer and settings). Your projects and time entries in the database will not be affected.
-              </p>
-            </div>
+                <div className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">
+                  {getImportSummary(importFile)}
+                </div>
+
+                {importValidation.warnings.length > 0 && (
+                  <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                    <strong>Warnings:</strong>
+                    <ul className="list-disc list-inside mt-1">
+                      {importValidation.warnings.map((warning, index) => (
+                        <li key={index}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+                    Import Strategy
+                  </label>
+                  <select
+                    value={mergeStrategy}
+                    onChange={(e) => setMergeStrategy(e.target.value as 'replace' | 'append')}
+                    className="w-full max-w-xs px-4 py-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="append">Merge with existing data</option>
+                    <option value="replace">Replace all existing data</option>
+                  </select>
+                  <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+                    {mergeStrategy === 'append'
+                      ? 'Imported data will be merged with your existing projects and time entries.'
+                      : '⚠️ All existing data will be deleted and replaced with imported data.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button variant="primary" onClick={handleImportData}>
+                    ✅ Confirm Import
+                  </Button>
+                  <Button variant="secondary" onClick={handleCancelImport}>
+                    ❌ Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 

@@ -57,12 +57,26 @@ export const BarChart = ({ data, maxValue, height = 200, showValues = true }: Ba
           );
         })}
       </svg>
-      <div className="flex justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
-        {data.map((item, index) => (
-          <span key={index} className="truncate" style={{ width: `${barWidth}%` }}>
-            {item.label}
-          </span>
-        ))}
+      <div className="relative mt-1 h-4 text-xs text-gray-500 dark:text-gray-400">
+        {data.map((item, index) => {
+          const x = (index * barWidth) + padding;
+          const width = barWidth - (padding * 2);
+          const centerX = x + width / 2;
+
+          return (
+            <span
+              key={index}
+              className="absolute truncate text-center whitespace-nowrap"
+              style={{
+                left: `${centerX}%`,
+                transform: 'translateX(-50%)',
+                maxWidth: `${barWidth - 1}%`,
+              }}
+            >
+              {item.label}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
